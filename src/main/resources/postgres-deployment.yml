@@ -1,0 +1,86 @@
+---
+# Define a 'Service' To Expose postgres to Other Services
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+    tier: database
+spec:
+  ports:
+    - port: 5432
+  selector:
+    app: postgres
+    tier: database
+  clusterIP: None
+
+---
+# Define a 'Persistent Voulume Claim'(PVC) for Postgress Storage, dynamically provisioned by cluster
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pv-claim # name of PVC essential for identifying the storage data
+  labels:
+    app: postgres
+    tier: database
+spec:
+  accessModes:
+    - ReadWriteOnce   #This specifies the mode of the claim that we are trying to create.
+  resources:
+    requests:
+      storage: 1Gi    #This will tell kubernetes about the amount of space we are trying to claim.
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+    tier: database
+
+spec:
+  selector: # mysql Pod Should contain same labels
+    matchLabels:
+      app: postgres
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels: # Must match 'Service' and 'Deployment' selectors
+        app: postgres
+        tier: database
+    spec:
+      containers:
+        - name: postgres
+          image: postgres
+          imagePullPolicy: "IfNotPresent"
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: postgres_user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: postgres_password
+            - name: POSTGRES_DB # Setting Database Name from a 'ConfigMap'
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-conf
+                  key: name
+
+          ports:
+            - containerPort: 5432
+              name: postgres
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: postgres-persistance-storage
+      volumes:
+        - name: postgres-persistance-storage
+          persistentVolumeClaim:
+            claimName: postgres-pv-claim
+
